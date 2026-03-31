@@ -1,0 +1,68 @@
+name: stamp-version
+description: Stamp a release version into one or more files using regex replacements.
+
+inputs:
+  version:
+    description: Version string to inject into target files.
+    required: true
+  replacements:
+    description: >
+      JSON array of replacement specs. Each item must contain path, pattern, and
+      replacement. The replacement string may include {version}.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Stamp version into configured files
+      shell: bash
+      env:
+        INPUT_VERSION: ${{ inputs.version }}
+        INPUT_REPLACEMENTS: ${{ inputs.replacements }}
+      run: |
+        python - <<'PY'
+        from __future__ import annotations
+
+        import json
+        import os
+        import pathlib
+        import re
+        import sys
+
+        repo_root = pathlib.Path.cwd()
+        version = os.environ["INPUT_VERSION"]
+
+        try:
+            replacements = json.loads(os.environ["INPUT_REPLACEMENTS"])
+        except json.JSONDecodeError as exc:
+            raise SystemExit(f"Invalid replacements JSON: {exc}") from exc
+
+        if not isinstance(replacements, list) or not replacements:
+            raise SystemExit("replacements must be a non-empty JSON list")
+
+        for item in replacements:
+            if not isinstance(item, dict):
+                raise SystemExit("each replacement must be an object")
+
+            path_value = item.get("path")
+            pattern = item.get("pattern")
+            replacement_template = item.get("replacement")
+            if not all(isinstance(value, str) and value for value in (path_value, pattern, replacement_template)):
+                raise SystemExit("each replacement must define non-empty string values for path, pattern, and replacement")
+
+            path = repo_root / path_value
+            original = path.read_text(encoding="utf-8")
+            replacement = replacement_template.format(version=version)
+            updated, count = re.subn(
+                pattern,
+                replacement,
+                original,
+                count=1,
+                flags=re.MULTILINE,
+            )
+            if count != 1:
+                raise SystemExit(f"Could not update version in {path}")
+            path.write_text(updated, encoding="utf-8")
+
+        print(f"Stamped version {version} into {len(replacements)} file(s).")
+        PY

@@ -13,6 +13,7 @@ The current workflows cover two responsibilities:
 
 - compute a release version from existing git tags
 - build and publish an Ansible collection release from an exact source commit
+- stamp versions into caller repositories through a shared composite action
 
 ## Design summary
 
@@ -32,11 +33,22 @@ This workflow is responsible only for publishing the Ansible collection once the
 caller has already decided which source commit and version to release.
 
 - it checks out the caller repository at `source_sha`
-- it runs the caller-provided `stamp_command`
+- it runs the shared stamp action with caller-provided replacement specs
 - it builds the collection artifact
 - it uploads the artifact between jobs
 - it creates the git tag if it does not exist yet
 - it publishes the artifact to the matching GitHub Release
+
+### `.github/actions/stamp-version`
+
+This composite action performs regex-based file updates inside the checked-out
+caller repository.
+
+- it accepts a `version`
+- it accepts JSON replacement specs
+- each spec declares `path`, `pattern`, and `replacement`
+- `replacement` may contain `{version}`
+- each pattern must match exactly once
 
 ## Caller responsibilities
 
@@ -44,7 +56,7 @@ The caller repository remains responsible for repository-specific policy.
 
 - decide when releases are allowed to run
 - prepare or commit version-stamped source on the default branch
-- pass a `stamp_command` that updates the repo's versioned files
+- pass replacement specs that describe the repo's versioned files
 - choose the artifact naming convention
 - grant `contents: write` and use `secrets: inherit` when invoking the release workflow
 

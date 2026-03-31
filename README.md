@@ -4,6 +4,15 @@ Reusable GitHub Actions workflows for Malaber repositories.
 
 ## Included workflows
 
+### `.github/actions/stamp-version`
+
+Stamps a version into repository files using declarative regex replacements.
+
+- accepts a `version`
+- accepts a JSON `replacements` array
+- each replacement defines `path`, `pattern`, and `replacement`
+- `replacement` may contain `{version}`
+
 ### `reusable-version.yml`
 
 Computes the next release version from git tags.
@@ -17,7 +26,7 @@ Computes the next release version from git tags.
 Builds and publishes an Ansible collection release from an exact source commit.
 
 - checks out the caller repository at the provided `source_sha`
-- runs a caller-provided stamp command to write the computed version into repo files
+- runs the shared `stamp-version` action with caller-provided replacement specs
 - builds the collection tarball
 - creates the git tag when needed
 - publishes the tarball to the matching GitHub Release
@@ -43,6 +52,7 @@ jobs:
       release_version: ${{ needs.version.outputs.release_version }}
       git_tag: ${{ needs.version.outputs.git_tag }}
       prerelease: ${{ needs.version.outputs.prerelease }}
-      stamp_command: python .github/scripts/stamp_version.py "${{ needs.version.outputs.release_version }}"
+      stamp_replacements: >-
+        [{"path":"pyproject.toml","pattern":"^version = \"[^\"]+\"$","replacement":"version = \"{version}\""}]
       artifact_name: my-namespace-my-collection-${{ needs.version.outputs.release_version }}
 ```
