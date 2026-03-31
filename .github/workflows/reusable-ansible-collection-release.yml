@@ -1,0 +1,126 @@
+name: reusable-ansible-collection-release
+
+on:
+  workflow_call:
+    inputs:
+      ansible_core_spec:
+        description: ansible-core requirement used for the collection build.
+        required: false
+        default: "ansible-core>=2.15,<2.18"
+        type: string
+      artifact_glob:
+        description: Glob for release assets produced by the build command.
+        required: false
+        default: "dist/*.tar.gz"
+        type: string
+      artifact_name:
+        description: Artifact name used for the intermediate upload.
+        required: true
+        type: string
+      build_command:
+        description: Command that builds the Ansible collection artifact.
+        required: false
+        default: "ansible-galaxy collection build --force --output-path dist"
+        type: string
+      git_tag:
+        description: Git tag to create or reuse for the release.
+        required: true
+        type: string
+      prerelease:
+        description: Whether the release should be published as a prerelease.
+        required: true
+        type: string
+      python_version:
+        description: Python version used for the build environment.
+        required: false
+        default: "3.14"
+        type: string
+      release_version:
+        description: Version to stamp into the caller repository before building.
+        required: true
+        type: string
+      source_sha:
+        description: Exact git commit to build and tag.
+        required: true
+        type: string
+      stamp_command:
+        description: Command that writes the release version into repo files.
+        required: true
+        type: string
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      artifact_name: ${{ steps.meta.outputs.artifact_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python_version }}
+
+      - name: Install ansible-core
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "${{ inputs.ansible_core_spec }}"
+
+      - name: Stamp release version into build metadata
+        env:
+          RELEASE_VERSION: ${{ inputs.release_version }}
+        run: ${{ inputs.stamp_command }}
+
+      - name: Build collection tarball
+        run: ${{ inputs.build_command }}
+
+      - name: Record artifact name
+        id: meta
+        run: echo "artifact_name=${{ inputs.artifact_name }}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload collection artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.meta.outputs.artifact_name }}
+          path: ${{ inputs.artifact_glob }}
+
+  release:
+    needs:
+      - build
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.source_sha }}
+
+      - name: Create or update git tag
+        env:
+          GIT_TAG: ${{ inputs.git_tag }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          if git rev-parse "$GIT_TAG" >/dev/null 2>&1; then
+            echo "Tag $GIT_TAG already exists."
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag "$GIT_TAG" "$SOURCE_SHA"
+            git push origin "$GIT_TAG"
+          fi
+
+      - name: Download collection artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.build.outputs.artifact_name }}
+          path: dist
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.git_tag }}
+          name: ${{ inputs.git_tag }}
+          prerelease: ${{ inputs.prerelease == 'true' }}
+          files: dist/*
