@@ -1,0 +1,104 @@
+name: reusable-dependabot-sync
+
+on:
+  workflow_call:
+
+jobs:
+  sync:
+    name: Open Dependabot configuration PR
+    permissions:
+      contents: write
+      pull-requests: write
+    runs-on: ubuntu-latest
+    env:
+      CALLER_PATH: .github/workflows/sync-dependabot.yml
+      DEPENDABOT_PATH: .github/dependabot.yml
+      SYNC_BRANCH: automation/sync-dependabot
+    steps:
+      - name: Check out caller repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prepare synchronization branch
+        env:
+          BASE_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          git fetch origin \
+            "+refs/heads/$BASE_BRANCH:refs/remotes/origin/$BASE_BRANCH"
+          git fetch origin \
+            "+refs/heads/$SYNC_BRANCH:refs/remotes/origin/$SYNC_BRANCH" || true
+          git switch --force-create "$SYNC_BRANCH" "origin/$BASE_BRANCH"
+
+      - name: Check out canonical configuration
+        uses: actions/checkout@v4
+        with:
+          repository: Malaber/github-workflows
+          ref: main
+          path: .shared-github-workflows
+          sparse-checkout: |
+            templates/dependabot.yml
+            templates/sync-dependabot.yml
+          sparse-checkout-cone-mode: false
+
+      - name: Open or update synchronization pull request
+        env:
+          BASE_BRANCH: ${{ github.event.repository.default_branch }}
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_CALLER: .shared-github-workflows/templates/sync-dependabot.yml
+          SOURCE_DEPENDABOT: .shared-github-workflows/templates/dependabot.yml
+        run: |
+          set -euo pipefail
+
+          shared_sha="$(git -C .shared-github-workflows rev-parse HEAD)"
+          rendered_caller="$RUNNER_TEMP/sync-dependabot.yml"
+          sed "s/__WORKFLOW_SHA__/$shared_sha/g" "$SOURCE_CALLER" >"$rendered_caller"
+
+          files_match=true
+          cmp -s "$SOURCE_DEPENDABOT" "$DEPENDABOT_PATH" || files_match=false
+          cmp -s "$rendered_caller" "$CALLER_PATH" || files_match=false
+          if [[ "$files_match" == "true" ]]; then
+            echo "Shared Dependabot files already match the canonical templates."
+            exit 0
+          fi
+
+          existing_dependabot="$RUNNER_TEMP/existing-dependabot.yml"
+          existing_caller="$RUNNER_TEMP/existing-sync-dependabot.yml"
+          branch_is_current=false
+          if git show "origin/$SYNC_BRANCH:$DEPENDABOT_PATH" >"$existing_dependabot" 2>/dev/null \
+            && git show "origin/$SYNC_BRANCH:$CALLER_PATH" >"$existing_caller" 2>/dev/null \
+            && cmp -s "$SOURCE_DEPENDABOT" "$existing_dependabot" \
+            && cmp -s "$rendered_caller" "$existing_caller"; then
+            branch_is_current=true
+          fi
+
+          if [[ "$branch_is_current" == "false" ]]; then
+            mkdir -p "$(dirname "$DEPENDABOT_PATH")" "$(dirname "$CALLER_PATH")"
+            cp "$SOURCE_DEPENDABOT" "$DEPENDABOT_PATH"
+            cp "$rendered_caller" "$CALLER_PATH"
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add "$DEPENDABOT_PATH" "$CALLER_PATH"
+            git commit -m "ci: sync shared Dependabot files"
+            git push --force-with-lease origin "HEAD:refs/heads/$SYNC_BRANCH"
+          fi
+
+          pr_number="$(
+            gh pr list \
+              --base "$BASE_BRANCH" \
+              --head "$SYNC_BRANCH" \
+              --state open \
+              --json number \
+              --jq '.[0].number'
+          )"
+          if [[ -n "$pr_number" ]]; then
+            echo "Dependabot synchronization PR #$pr_number is already open."
+            exit 0
+          fi
+
+          gh pr create \
+            --base "$BASE_BRANCH" \
+            --head "$SYNC_BRANCH" \
+            --title "ci: sync shared Dependabot files" \
+            --body "Synchronizes the repository with the canonical Dependabot configuration and caller in Malaber/github-workflows. This workflow only updates the automation branch; it never pushes to $BASE_BRANCH."
