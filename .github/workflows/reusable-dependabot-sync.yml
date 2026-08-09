@@ -1,0 +1,89 @@
+name: reusable-dependabot-sync
+
+on:
+  workflow_call:
+
+jobs:
+  sync:
+    name: Open Dependabot configuration PR
+    permissions:
+      contents: write
+      pull-requests: write
+    runs-on: ubuntu-latest
+    env:
+      CONFIG_PATH: .github/dependabot.yml
+      SYNC_BRANCH: automation/sync-dependabot
+    steps:
+      - name: Check out caller repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prepare synchronization branch
+        env:
+          BASE_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          git fetch origin \
+            "+refs/heads/$BASE_BRANCH:refs/remotes/origin/$BASE_BRANCH"
+          git fetch origin \
+            "+refs/heads/$SYNC_BRANCH:refs/remotes/origin/$SYNC_BRANCH" || true
+          git switch --force-create "$SYNC_BRANCH" "origin/$BASE_BRANCH"
+
+      - name: Check out canonical configuration
+        uses: actions/checkout@v4
+        with:
+          repository: Malaber/github-workflows
+          ref: main
+          path: .shared-github-workflows
+          sparse-checkout: templates/dependabot.yml
+          sparse-checkout-cone-mode: false
+
+      - name: Open or update synchronization pull request
+        env:
+          BASE_BRANCH: ${{ github.event.repository.default_branch }}
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_CONFIG: .shared-github-workflows/templates/dependabot.yml
+        run: |
+          set -euo pipefail
+
+          if cmp -s "$SOURCE_CONFIG" "$CONFIG_PATH"; then
+            echo "$CONFIG_PATH already matches the canonical configuration."
+            exit 0
+          fi
+
+          existing_config="$RUNNER_TEMP/existing-dependabot.yml"
+          branch_is_current=false
+          if git show "origin/$SYNC_BRANCH:$CONFIG_PATH" >"$existing_config" 2>/dev/null \
+            && cmp -s "$SOURCE_CONFIG" "$existing_config"; then
+            branch_is_current=true
+          fi
+
+          if [[ "$branch_is_current" == "false" ]]; then
+            mkdir -p "$(dirname "$CONFIG_PATH")"
+            cp "$SOURCE_CONFIG" "$CONFIG_PATH"
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add "$CONFIG_PATH"
+            git commit -m "ci: sync Dependabot configuration"
+            git push --force-with-lease origin "HEAD:refs/heads/$SYNC_BRANCH"
+          fi
+
+          pr_number="$(
+            gh pr list \
+              --base "$BASE_BRANCH" \
+              --head "$SYNC_BRANCH" \
+              --state open \
+              --json number \
+              --jq '.[0].number'
+          )"
+          if [[ -n "$pr_number" ]]; then
+            echo "Dependabot synchronization PR #$pr_number is already open."
+            exit 0
+          fi
+
+          gh pr create \
+            --base "$BASE_BRANCH" \
+            --head "$SYNC_BRANCH" \
+            --title "ci: sync Dependabot configuration" \
+            --body "Synchronizes the repository with the canonical Dependabot configuration in Malaber/github-workflows. This workflow only updates the automation branch; it never pushes to $BASE_BRANCH."

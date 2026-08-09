@@ -14,6 +14,7 @@ The current workflows cover two responsibilities:
 - compute a release version from existing git tags
 - build and publish an Ansible collection release from an exact source commit
 - stamp versions into caller repositories through a shared composite action
+- synchronize a canonical Dependabot configuration through pull requests
 
 ## Design summary
 
@@ -50,6 +51,15 @@ caller repository.
 - `replacement` may contain `{version}`
 - each pattern must match exactly once
 
+### `reusable-dependabot-sync.yml`
+
+This workflow synchronizes `templates/dependabot.yml` into caller repositories.
+
+- it writes only to the `automation/sync-dependabot` branch
+- it opens or refreshes a pull request against the caller's default branch
+- it never pushes configuration changes directly to the default branch
+- it reuses an existing synchronization pull request without creating commit churn
+
 ## Caller responsibilities
 
 The caller repository remains responsible for repository-specific policy.
@@ -59,6 +69,7 @@ The caller repository remains responsible for repository-specific policy.
 - pass replacement specs that describe the repo's versioned files
 - choose the artifact naming convention
 - grant `contents: write` and use `secrets: inherit` when invoking the release workflow
+- grant `contents: write` and `pull-requests: write` when invoking the Dependabot sync workflow
 
 ## Change guidelines
 

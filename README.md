@@ -31,6 +31,33 @@ Builds and publishes an Ansible collection release from an exact source commit.
 - creates the git tag when needed
 - publishes the tarball to the matching GitHub Release
 
+### `reusable-dependabot-sync.yml`
+
+Keeps application repositories aligned with the canonical `templates/dependabot.yml` file.
+
+- compares the caller's `.github/dependabot.yml` with the canonical template
+- updates only the `automation/sync-dependabot` branch
+- opens or refreshes a pull request instead of pushing to the default branch
+- reuses an existing synchronization pull request when one is already open
+
+Call it from a small scheduled workflow in each application repository:
+
+```yaml
+name: Sync Dependabot configuration
+
+on:
+  schedule:
+    - cron: "23 5 * * 1"
+  workflow_dispatch:
+
+jobs:
+  sync:
+    permissions:
+      contents: write
+      pull-requests: write
+    uses: Malaber/github-workflows/.github/workflows/reusable-dependabot-sync.yml@main
+```
+
 ## Example
 
 ```yaml
