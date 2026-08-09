@@ -53,8 +53,10 @@ caller repository.
 
 ### `reusable-dependabot-sync.yml`
 
-This workflow synchronizes `templates/dependabot.yml` into caller repositories.
+This workflow synchronizes the Dependabot configuration and its minimal caller from `templates/`
+into caller repositories.
 
+- it renders the caller with the immutable commit SHA currently on `main`
 - it writes only to the `automation/sync-dependabot` branch
 - it opens or refreshes a pull request against the caller's default branch
 - it never pushes configuration changes directly to the default branch
