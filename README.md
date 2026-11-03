@@ -84,3 +84,32 @@ jobs:
         [{"path":"pyproject.toml","pattern":"^version = \"[^\"]+\"$","replacement":"version = \"{version}\""}]
       artifact_name: my-namespace-my-collection-${{ needs.version.outputs.release_version }}
 ```
+
+## App Store creative assets
+
+`reusable-appstore-creative.yml` renders caller-owned SVG artwork around a current
+screenshot artifact. It validates fully decoded opaque 5244×2950 RGB PNGs and
+requires editable SVGs for both header and search-results assets. No Apple
+credentials, asset replacement, release/tag mutation, or AI image generation.
+
+```yaml
+creative:
+  needs: screenshots
+  uses: Malaber/github-workflows/.github/workflows/reusable-appstore-creative.yml@<reviewed-commit-sha>
+  with:
+    screenshot_artifact: appstore-iphone
+    screenshot_glob: en-US/02-cooking-companion*.png
+    renderer: marketing/creative/render.py
+    requirements: marketing/requirements.txt
+    output_artifact: appstore-creative
+```
+
+The caller's renderer must accept `--screenshot PATH --output DIRECTORY` and emit
+`header.svg`, `header.png`, `search-results.svg`, `search-results.png`. Keep branding,
+licensed fonts and editable source artwork in the caller repository. Outline text
+and embed image references for portable exported SVGs. Inkscape is installed on
+Ubuntu 24.04; pin its package/container version in a fork when byte-identical
+rendering across future runner updates is required. Consumers should pin this
+workflow to an immutable reviewed SHA. Download the output artifact in the
+existing release-packaging job. Require human visual approval in App Store
+Connect before publishing new artwork.
