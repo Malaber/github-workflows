@@ -113,3 +113,9 @@ rendering across future runner updates is required. Consumers should pin this
 workflow to an immutable reviewed SHA. Download the output artifact in the
 existing release-packaging job. Require human visual approval in App Store
 Connect before publishing new artwork.
+
+Creative jobs accept `job_timeout_minutes` (default 30). Dependency installation
+has a separate 15-minute bound, uses Ubuntu's canonical package mirror and omits
+recommended packages. Transport failures fail the job without automatic retries.
+The remaining budget covers rendering and uploading; a slow install cannot consume
+the entire former 15-minute job budget.

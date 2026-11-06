@@ -17,6 +17,10 @@ on:
       requirements:
         default: marketing/requirements.txt
         type: string
+      job_timeout_minutes:
+        description: Total budget including dependency installation and rendering.
+        default: 30
+        type: number
       output_artifact:
         default: appstore-creative
         type: string
@@ -25,13 +29,21 @@ permissions:
 jobs:
   render:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: ${{ inputs.job_timeout_minutes }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.14'
-      - run: sudo apt-get update && sudo apt-get install -y inkscape
+      - name: Install minimal rendering tools
+        timeout-minutes: 15
+        run: |
+          # Use Ubuntu's canonical mirror; Azure's regional mirror stalled before
+          # rendering in callers. Fail on transport errors without retry loops.
+          sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list.d/ubuntu.sources
+          sudo apt-get -o Acquire::Retries=0 -o Acquire::http::Timeout=60 -o Acquire::https::Timeout=60 update
+          sudo apt-get -o Acquire::Retries=0 -o Acquire::http::Timeout=60 -o Acquire::https::Timeout=60 install -y --no-install-recommends inkscape
+
       - name: Install caller renderer dependencies
         env:
           REQUIREMENTS: ${{ inputs.requirements }}
